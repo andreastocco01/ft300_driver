@@ -25,7 +25,7 @@
  */
 
 // Compute the MODBUS RTU CRC
-unsigned short crc_calculator (char buff[], int len) {
+unsigned short ModRTU_CRC (char buff[], int len) {
     unsigned short crc = 0xFFFF;
 
     for (int pos = 0; pos < len; pos++) {
@@ -65,18 +65,23 @@ int main (int argc, char** argv) {
         return -1;
     }
 
-    // is necessary write 0xff 50 times to the sensor?
+    // initialize data stream
+    unsigned char req [] = {0x09, 0x10, 0x01, 0x9A, 0x00, 0x01, 0x02, 0x02, 0x00, 0xCD, 0xCA};
+    write(socketfd, req, sizeof(req));
 
     ros::Rate rate(100); // ft300 frequency
+
     char buff [17]; // 16 (size of ft300 message) + 1 (size of \0 character)
     int r;
+
     ros::Publisher publisher = node.advertise<geometry_msgs::Wrench>("sensor_topic", 10);
     geometry_msgs::Vector3 force;
     geometry_msgs::Vector3 torque;
     geometry_msgs::Wrench message;
+
     while(ros::ok() && (r = read(socketfd, buff, 16)) != -1) {
         buff[r] = 0; // c string terminator char
-        unsigned short crc = crc_calculator(buff, 14);
+        unsigned short crc = ModRTU_CRC(buff, 14);
         unsigned char* lsb = (unsigned char*) &crc;
         unsigned char* msb = lsb + 1;
         if (*lsb == buff[14] && *msb == buff[15]) { // crc check
@@ -95,6 +100,12 @@ int main (int argc, char** argv) {
             publisher.publish(message);
         }
         rate.sleep();
+    }
+
+    // stop data stream
+    unsigned char close_buff [] = {0xFF};
+    for (int i = 0; i < 50; i++) {
+        write(socketfd, close_buff, sizeof(close_buff));
     }
     return 0;
 }
