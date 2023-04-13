@@ -2,46 +2,17 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <netinet/in.h>
-#include <geometry_msgs/Wrench.h>
+#include <geometry_msgs/WrenchStamped.h>
+#include <string.h>
 
-/*
- * buff[0] = 0x20
- * buff[1] = 0x4E
- * buff[2] = Fx * 100 (Least Significant Bit)
- * buff[3] = Fx * 100 (Most Significant Bit)
- * buff[4] = Fy * 100
- * buff[5] = Fy * 100
- * buff[6] = Fz * 100
- * buff[7] = Fz * 100
- * buff[8] = Mx * 1000
- * buff[9] = Mx * 1000
- * buff[10] = My * 1000
- * buff[11] = My * 1000
- * buff[12] = Mz * 1000
- * buff[13] = Mz * 1000
- * buff[14] = LSB crc
- * buff[15] = MSB crc
- *
- */
-
-// Compute the MODBUS RTU CRC
-unsigned short ModRTU_CRC (char buff[], int len) {
-    unsigned short crc = 0xFFFF;
-
-    for (int pos = 0; pos < len; pos++) {
-        crc ^= (unsigned short) buff[pos];          // XOR byte into least sig. byte of crc
-
-        for (int i = 8; i != 0; i--) {    // Loop over each bit
-            if ((crc & 0x0001) != 0) {      // If the LSB is set
-                crc >>= 1;                    // Shift right and XOR 0xA001
-                crc ^= 0xA001;
-            }
-            else                            // Else LSB is not set
-                crc >>= 1;                    // Just shift right
-        }
+void parse(char* buff, char** res) {
+    char delim [] = "() ,";
+    char* ptr = strtok(buff, delim);
+    int i = 0;
+    while(ptr != NULL) {
+        res[i++] = ptr;
+        ptr = strtok(NULL, delim);
     }
-    // Note, this number has low and high bytes swapped, so use it accordingly (or swap bytes)
-    return crc;
 }
 
 int main (int argc, char** argv) {
@@ -65,47 +36,40 @@ int main (int argc, char** argv) {
         return -1;
     }
 
-    // initialize data stream
-    unsigned char req [] = {0x09, 0x10, 0x01, 0x9A, 0x00, 0x01, 0x02, 0x02, 0x00, 0xCD, 0xCA};
-    write(socketfd, req, sizeof(req));
-
     ros::Rate rate(100); // ft300 frequency
 
-    char buff [17]; // 16 (size of ft300 message) + 1 (size of \0 character)
+    char buff [72]; // 71 (size of ft300 message) + 1 (size of \0 character)
     int r;
 
-    ros::Publisher publisher = node.advertise<geometry_msgs::Wrench>("sensor_topic", 10);
+    ros::Publisher publisher = node.advertise<geometry_msgs::WrenchStamped>("sensor_topic", 10);
     geometry_msgs::Vector3 force;
     geometry_msgs::Vector3 torque;
-    geometry_msgs::Wrench message;
+    geometry_msgs::WrenchStamped message;
 
-    while(ros::ok() && (r = read(socketfd, buff, 16)) != -1) {
+    while(ros::ok() && (r = read(socketfd, buff, 71)) != -1) {
         buff[r] = 0; // c string terminator char
-        unsigned short crc = ModRTU_CRC(buff, 14);
-        unsigned char* lsb = (unsigned char*) &crc;
-        unsigned char* msb = lsb + 1;
-        if (*lsb == buff[14] && *msb == buff[15]) { // crc check
-            ROS_INFO("No Transmission Errors");
-            // parsing sensor values
-            force.x = buff[3] << 2 | buff[2];
-            force.y = buff[5] << 2 | buff[4];
-            force.z = buff[7] << 2 | buff[6];
 
-            torque.x = buff[9] << 2 | buff[8];
-            torque.y = buff[11] << 2 | buff[10];
-            torque.z = buff[13] << 2 | buff[12];
+        char* buff_parsed [6];
 
-            message.force = force;
-            message.torque = torque;
-            publisher.publish(message);
-        }
+        parse(buff, buff_parsed);
+
+        // parsing sensor values
+        force.x = atof(buff_parsed[0]);
+        force.y = atof(buff_parsed[1]);
+        force.z = atof(buff_parsed[2]);
+
+        torque.x = atof(buff_parsed[3]);
+        torque.y = atof(buff_parsed[4]);
+        torque.z = atof(buff_parsed[5]);
+
+        message.wrench.force = force;
+        message.wrench.torque = torque;
+        message.header.frame_id = "robotiq_ft_frame_id";
+        message.header.stamp = ros::Time::now();
+        publisher.publish(message);
+
         rate.sleep();
     }
 
-    // stop data stream
-    unsigned char close_buff [] = {0xFF};
-    for (int i = 0; i < 50; i++) {
-        write(socketfd, close_buff, sizeof(close_buff));
-    }
     return 0;
 }
