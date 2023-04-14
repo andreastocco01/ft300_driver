@@ -38,7 +38,7 @@ int main (int argc, char** argv) {
 
     ros::Rate rate(100); // ft300 frequency
 
-    char buff [72]; // 71 (size of ft300 message) + 1 (size of \0 character)
+    char buff [101]; // the buffer has variable size
     int r;
 
     ros::Publisher publisher = node.advertise<geometry_msgs::WrenchStamped>("sensor_topic", 10);
@@ -46,10 +46,11 @@ int main (int argc, char** argv) {
     geometry_msgs::Vector3 torque;
     geometry_msgs::WrenchStamped message;
 
-    while(ros::ok() && (r = read(socketfd, buff, 71)) != -1) {
+    while(ros::ok() && (r = read(socketfd, buff, 100)) != -1) {
         buff[r] = 0; // c string terminator char
 
         char* buff_parsed [6];
+        printf("bytes received %d --> %s\n", r, &buff);
 
         parse(buff, buff_parsed);
 
