@@ -1,4 +1,5 @@
 import rospy
+import re
 import socket
 from geometry_msgs.msg import WrenchStamped, Wrench
 from std_msgs.msg import Header
@@ -21,22 +22,23 @@ def main():
     while not rospy.is_shutdown():
 
         # Read 71 bytes from tcp stream
-        buffer, addr = sock.recvfrom(71)
+        buffer, addr = sock.recvfrom(4096)
+        #packets = re.search("(?=\()(.*)(?<=\))", buffer.decode("ascii"))
         
-        # Remove '(' ')' from buffer string and split each value
-        values = str(buffer, "ascii").strip("()").split(",")             
-
+        packet = str(buffer, "ascii").replace(" ", "").replace("(", "").replace(")", "").split(",")
+        print(packet)
+        
         # Convert values to float numbers
-        fx = float(values[0])
-        fy = float(values[1])
-        fz = float(values[2])
-        mx = float(values[3])
-        my = float(values[4])
-        mz = float(values[5])
+        fx = packet[0]
+        fy = packet[1]
+        fz = packet[2]
+        mx = packet[3]
+        my = packet[4]
+        mz = packet[5]
 
         # DEBUG: print float values
-        print(f"{{ {fx}, {fy}, {fz}, {mx}, {my}, {mz} }}")
-        print("\n\n") 
+        #print(f"{{ {fx}, {fy}, {fz}, {mx}, {my}, {mz} }}")
+        #print("\n\n") 
 
         # Create message parts
         message = WrenchStamped()
@@ -61,7 +63,7 @@ def main():
         message.wrench = wrench
 
         # DEBUG: log values
-        rospy.loginfo(values)
+        #rospy.loginfo(packet)
         # Publish WrenchStamped message to topic and sleep
         publisher.publish(message)
         rate.sleep()
